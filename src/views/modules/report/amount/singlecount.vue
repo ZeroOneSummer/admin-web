@@ -1,0 +1,364 @@
+<template>
+  <div class="page-container">
+    <div class="show-box" v-show="!switchForm">
+      <div class="query-box">
+        <el-collapse v-model="activeNames" @change="handleChange">
+          <el-collapse-item :title="title" name="1">
+            <div class="query-item">
+              <el-form :label-position="labelPosition" :model="q" label-width="100px">
+                <el-form-item label="所属服务商">
+                  <el-input v-model="q.dealerCode" placeholder="请输入所属服务商"/>
+                </el-form-item>
+                <el-form-item label="所属机构">
+                  <el-input v-model="q.orgCode" placeholder="请输入所属机构"/>
+                </el-form-item>
+              </el-form>
+            </div>
+            <div class="query-item">
+              <el-form :label-position="labelPosition" :model="q" label-width="100px">
+                <el-form-item label="登录账号">
+                  <el-input v-model="q.loginCode" placeholder="请输入登录账号"/>
+                </el-form-item>
+                <el-form-item label="联系电话">
+                  <el-input v-model="q.userMobile" placeholder="请输入联系电话"/>
+                </el-form-item>
+              </el-form>
+            </div>
+            <div class="query-item">
+              <el-form :label-position="labelPosition" label-width="80px" :model="q">
+                <el-form-item label="日期查询">
+                  <el-date-picker
+                    v-model="value"
+                    type="daterange"
+                    align="right"
+                    unlink-panels
+                    range-separator="至"
+                    start-placeholder="开始日期"
+                    end-placeholder="结束日期"
+                    :picker-options="pickerOptions2"
+                  ></el-date-picker>
+                </el-form-item>
+              </el-form>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+      <div class="btn-box">
+        <el-button type="primary" @click="query">查询</el-button>
+        <el-button type="primary" @click="reset">重置</el-button>
+        <el-button type="primary" icon="el-icon-download" @click="download">导出</el-button>
+      </div>
+      <div class="tb-box">
+        <el-table
+          :data="tableData"
+          :header-cell-style="rowClass"
+          style="width: 100%"
+          border
+          max-height="500"
+        >
+          <el-table-column type="index" width="50" align="center"/>
+          <el-table-column prop="loginCode" label="客户登录账号" align="left" :show-overflow-tooltip="true"/>
+          <el-table-column prop="userMobile" label="手机号码" align="left"/>
+          <el-table-column prop="dealerCode" label="所属服务商" align="left"/>
+          <el-table-column prop="orgCode" label="所属机构" align="left"/>
+          <el-table-column prop="total" :label="'收入'+keyword+'总额'" align="right">
+            <template slot-scope="scope">
+              <span>{{scope.row.total | rounding}}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="consume" :label="'支出'+keyword+'总额'" align="right">
+            <template slot-scope="scope">
+              <span>{{scope.row.consume | rounding}}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="invalid" :label="'失效'+keyword+'总额'" align="right">
+            <template slot-scope="scope">
+              <span>{{scope.row.invalid | rounding}}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="usable" :label="'当前可用'+keyword+'总额'" align="right">
+            <template slot-scope="scope">
+              <span>{{scope.row.usable | rounding}}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="currentEndTime" label="账单日" align="left"/>
+          <el-table-column prop="willExpire" :label="'15日内即将过期'+keyword" align="right">
+            <template slot-scope="scope">
+              <span>{{scope.row.willExpire | rounding}}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop label="操作" align="center">
+            <template slot-scope="scope">
+              <el-button type="primary" size="mini" @click="forDetails(scope.$index, scope.row)">明细</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <div class="block">
+        <el-pagination
+          :current-page="page.currentPage"
+          :page-sizes="[10, 30, 50]"
+          :page-size="page.pageSize"
+          :total="page.total"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
+    </div>
+
+    <div v-if="showDetails" class="child-page">
+      <singledetail @goback="goback(value)" :queryTime = "value" :id="detailId"></singledetail>
+    </div>
+  </div>
+</template>
+<script>
+import { FormatAllDate, getTimeByType,formatDate } from "@/utils/timeUtils";
+import { formatDateTime } from "@/utils";
+import singledetail from "./children/singledetail";
+export default {
+  data() {
+    return {
+      title: "查询窗口（点击展开）",
+      labelPosition: "right",
+      switchForm:false,
+      q: {
+        dealerCode: "",
+        orgCode: "",
+        loginCode: "",
+        userMobile:"",
+        startTime: "",
+        endTime: ""
+      },
+      activeNames: [],
+      tableData: [],
+      page: {
+        pageSize: 50,
+        total: 0,
+        currentPage: 1
+      },
+      value: [new Date(), new Date()],
+      pickerOptions2: {
+        shortcuts: [
+          {
+            text: "当日",
+            onClick(picker) {
+              const end = getTimeByType("CURRENTDAY").endTime;
+              const start = getTimeByType("CURRENTDAY").startTime;
+              picker.$emit("pick", [start, end]);
+            }
+          },
+          {
+            text: "上日",
+            onClick(picker) {
+              const end = getTimeByType("YESTERODAY").endTime;
+              const start = getTimeByType("YESTERODAY").startTime;
+              picker.$emit("pick", [start, end]);
+            }
+          },
+          {
+            text: "本周",
+            onClick(picker) {
+              const end = getTimeByType("CURRENTWEEK").endTime;
+              const start = getTimeByType("CURRENTWEEK").startTime;
+              picker.$emit("pick", [start, end]);
+            }
+          },
+          {
+            text: "上周",
+            onClick(picker) {
+              const end = getTimeByType("PREWEEK").endTime;
+              const start = getTimeByType("PREWEEK").startTime;
+              picker.$emit("pick", [start, end]);
+            }
+          },
+          {
+            text: "本月",
+            onClick(picker) {
+              const end = new Date();
+              const start = new Date();
+              const monthStart = new Date(
+                start.getFullYear(),
+                start.getMonth(),
+                1
+              );
+              start.setTime(start.getTime() - 3600 * 1000 * 24 * 30);
+              picker.$emit("pick", [monthStart, end]);
+            }
+          },
+          {
+            text: "上月",
+            onClick(picker) {
+              const start = new Date();
+              const monthStart = new Date(
+                start.getFullYear(),
+                start.getMonth(),
+                1
+              );
+              const preMS = new Date(
+                start.getFullYear(),
+                start.getMonth() - 1,
+                1
+              );
+              const preME = new Date(
+                monthStart.getTime() - 60 * 60 * 24 * 1000
+              );
+              picker.$emit("pick", [preMS, preME]);
+            }
+          }
+        ]
+      },
+      showDetails: false
+    };
+  },
+  components: {
+    singledetail
+  },
+  filters:{
+    rounding(value) {
+      if (value) {
+        return value.toFixed(2);
+      } else {
+        return "0.00";
+      }
+    }
+  },
+  methods: {
+    handleChange() {
+      if (this.activeNames.length > 0) {
+        this.title = "查询窗口（收起）";
+      } else {
+        this.title = "查询窗口（点击展开）";
+      }
+    },
+    async query() {
+      this.q.startTime = FormatAllDate(this.value[0]);
+      this.q.endTime = formatDate(this.value[1]) + ' 23:59:59';
+      let queryParams =
+      "&dealerCode=" +
+        this.q.dealerCode +
+      "&orgCode=" +
+        this.q.orgCode +
+      "&loginCode=" +
+        this.q.loginCode +
+        "&userMobile=" +
+        this.q.userMobile +
+        "&startTime=" +
+        this.q.startTime +
+        "&endTime=" +
+        this.q.endTime;
+      let r = await this._fetch(
+        "/hxbounty/singleCount?limit=50&page=1" + queryParams,
+        {
+          method: "GET"
+        }
+      );
+      if (r.code === 0) {
+        this.tableData = r.page.list;
+        this.page.total = r.page.totalCount;
+        this.page.pageSize = r.page.pageSize;
+      } else {
+        this.$message(r.msg);
+      }
+    },
+    reset() {
+      this.value = [new Date(), new Date()];
+      this.q = {
+        startTime: FormatAllDate(this.value[0]),
+        endTime: formatDate(this.value[1]) + ' 23:59:59'
+      };
+    },
+    download() {
+      const token = window.localStorage.getItem("token");
+      this.q.startTime = formatDate(this.value[0]) + ' 00:00:00';
+      this.q.endTime = formatDate(this.value[1]) + ' 23:59:59';
+      this.url =
+      "/hxbounty/download?type=single&token="+
+      token+
+      "&userMobile="+
+      this.q.userMobile+
+      "&loginCode="+
+      this.q.loginCode+
+      "&dealerCode="+
+      this.q.dealerCode+
+      "&orgCode="+
+      this.q.orgCode+
+      "&startTime="+
+      this.q.startTime+
+      "&endTime="+
+      this.q.endTime+
+      "&page="+
+      this.page.currentPage+
+      "&limit="+
+      this.page.pageSize;
+    fetch(this.baseURL+this.url, {
+        headers: {
+            'Content-type': 'application/json;charset=UTF-8',
+            'token': token
+        }
+    }).then(res => res.blob().then(blob => {
+        var filename=`个人K豆管理.xls`
+        var a = document.createElement('a');
+        var url = window.URL.createObjectURL(blob); 
+        a.href = url;
+        a.download = filename;
+        a.click();
+        window.URL.revokeObjectURL(url);
+    }))
+    },
+    forDetails(index,row){
+      this.switchForm = true;
+      this.showDetails = true;
+      this.detailId = row.accId;
+    },
+    goback(){
+      this.showDetails = false;
+      this.switchForm = false;
+    },
+    async handleSizeChange(val) {
+      let r = await this._fetch(
+        "/hxbounty/singleCount?limit=" +
+          val +
+          "&page=" +
+          this.page.currentPage,
+        { method: "GET" }
+      );
+      this.tableData = r.page.list;
+      this.page.pageSize = val;
+    },
+    async handleCurrentChange(val) {
+      let r = await this._fetch(
+        "/hxbounty/dealerCount?limit=" +
+          this.page.pageSize +
+          "&page=" +
+          val,
+        { method: "GET" }
+      );
+      this.tableData = r.page.list;
+      this.page.currentPage = val;
+    },
+    rowClass() {
+      return "text-align:center";
+    }
+  }
+};
+</script>
+<style lang="scss" scoped>
+.btn-box {
+  padding-top: 15px;
+}
+.page-container {
+  position: relative;
+}
+.child-page {
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+}
+</style>
+
